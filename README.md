@@ -6,7 +6,7 @@ This Charlson Comorbidity Index Calculator, named 'Chiron', is a response to the
 
 In Greek mythology, Chiron was the wisest and justest of all the centaurs, known for his knowledge and skill with medicine. The name reflects the purpose of this application and its aim to provide insights into comorbidities related to different drugs.
 
-The calculator uses data from the Eunomia synthetic dataset, which adheres to the Observational Medical Outcomes Partnership (OMOP) Common Data Model. This app identifies drug exposures using RxNorm CUIs obtained from Athena (OHDSI, 2023) and conditions contributing to the CCI using SNOMED CT codes from a validated list (Fortin, Reps, & Ryan, 2022).
+The calculator uses data from the Eunomia synthetic dataset, which adheres to the Observational Medical Outcomes Partnership (OMOP) Common Data Model **(Schuemie & DeFalco, 2020)**. This app identifies drug exposures using RxNorm CUIs obtained from Athena **(OHDSI, 2023)** and conditions contributing to the CCI using SNOMED CT codes from a validated list **(Fortin, Reps, & Ryan, 2022)**.
 
 Individuals with drug exposures are indexed on their first date of drug exposure, and their age is calculated at this period. To use this calculator, enter the name of the drug in the text box and click 'Calculate CCI'. The app will then calculate the Charlson Comorbidity Index (CCI) for each person exposed to the drug. The CCI is calculated as the sum of weights associated with each condition a person has, plus a weight based on age, according to the methodology defined by Quan et al., 2005.
 
