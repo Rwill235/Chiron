@@ -1,0 +1,276 @@
+
+---
+output: html_document
+runtime: shiny
+---
+
+<div style="text-align: center;">
+  <img src="aes/ohdsi_resized.png" width="438px">
+  <h1>Chiron Charlson Index Calculator</h1>
+</div>
+
+```{r setup, include=FALSE}
+# Load Shiny For Web Applications
+library(shiny)
+# Load Flexdashboard For Interactive Dashboards
+library(flexdashboard)
+# Load Tidyverse For Data Science Operations
+library(tidyverse)
+# Load Janitor For Data Cleaning
+library(janitor)
+# Packae to Coalesce Duplicate Rows
+library(coviData)
+# Load DT For Interactive Tables
+library(DT)
+
+# Source External R Script For Color Palettes
+#source('color_palettes.R')
+
+# Define The Number Of Seconds In A Year
+seconds_in_year <- 60 * 60 * 24 * 365.25
+
+# Load RxNorm List Data from RDS
+rxnorm_list <- readRDS("data/athena_rx_norm_concepts.rds")
+
+# Load Validated SNOMED List Data from RDS
+snomed_list <- readRDS("data/concept_codes.rds")
+
+# Load Person Data from RDS
+person <- readRDS("data/person_eunomia.rds")
+
+# Load Observation Period Data from RDS
+observation_period <- readRDS("data/observation_period.rds")
+
+# Load Drug Exposure Data from RDS
+drug_exposure <- readRDS("data/drug_exposure.rds")
+
+# Load Condition Occurrence Data from RDS
+condition_occurrence <- readRDS("data/condition_occurrence.rds")
+```
+
+```{r, echo = F}
+# Define User Interface Components
+fluidRow(br(),
+				 column(
+				 	4,
+				 	offset = 4,
+				 	textInput("drug_name", "Enter Drug Name:", "Acetaminophen"),
+				 	actionButton("go_button", "Calculate CCI")
+				 ),
+				 column(12,
+				 			 tabsetPanel(
+				 			 	tabPanel(
+				 			 		"Results",
+				 			 		DT::dataTableOutput("cc_index"),
+				 			 		verbatimTextOutput("error_message")
+				 			 	),
+				 			 	tabPanel(
+				 			 		"About",
+				 			 		br(),
+				 			 		tags$style(".custom-heading { margin-bottom: 15px; }"),
+				 			 		h3("About This App", align = "center", class = "custom-heading"),
+				 			 		p(
+				 			 			"This Charlson Comorbidity Index Calculator, named 'Chiron', is a response to the Janssen OHDA programming assignment. It's a user-friendly tool designed for anyone interested in exploring the comorbidity index of different drugs."
+				 			 		),
+				 			 		p(
+				 			 			"In Greek mythology, Chiron was the wisest and justest of all the centaurs, known for his knowledge and skill with medicine. The name reflects the purpose of this application and its aim to provide insights into comorbidities related to different drugs."
+				 			 		),
+				 			 		p(
+				 			 			"The calculator uses data from the Eunomia synthetic dataset, which adheres to the Observational Medical Outcomes Partnership (OMOP) Common Data Model. This app identifies drug exposures using RxNorm CUIs obtained from Athena (OHDSI, 2023) and conditions contributing to the CCI using SNOMED CT codes from a validated list (Fortin, Reps, & Ryan, 2022)."
+				 			 		),
+				 			 		p(
+				 			 			"Individuals with drug exposures are indexed on their first date of drug exposure, and their age is calculated at this period. To use this calculator, enter the name of the drug in the text box and click 'Calculate CCI'. The app will then calculate the Charlson Comorbidity Index (CCI) for each person exposed to the drug. The CCI is calculated as the sum of weights associated with each condition a person has, plus a weight based on age, according to the methodology defined by Quan et al., 2005."
+				 			 		),
+				 			 		p(
+				 			 			"Please note that the search requires the drug name to be at least 4 characters long. If the entered drug name does not match any entries in the Eunomia CDM tables, an error message will be displayed."
+				 			 		),
+				 			 		p("This application is intended for demonstrative purposes only."),
+				 			 		h3("References:", align = "center", class = "custom-heading"),
+				 			 		p(
+				 			 			"Fortin, S.P., Reps, J., & Ryan, P. (2022). Adaptation and validation of a coding algorithm for the Charlson Comorbidity Index in administrative claims data using the SNOMED CT standardized vocabulary. BMC Med Inform Decis Mak. 22(1):261. doi: 10.1186/s12911-022-02006-1. Erratum in: BMC Med Inform Decis Mak. 2023 Jun 15;23(1):109. PMID: 36207711; PMCID: PMC9541054."
+				 			 		),
+				 			 		p(
+				 			 			"Observational Health Data Sciences and Informatics (OHDSI). (2023). Athena - OHDSI Vocabularies Repository [Database]."
+				 			 		),
+				 			 		p(
+				 			 			"Quan, H., Sundararajan, V., Halfon, P., Fong, A., Burnand, B., Luthi, J.C., Saunders, L.D., Beck, C.A., Feasby, T.E., & Ghali, W.A. (2005). Coding algorithms for defining comorbidities in ICD-9-CM and ICD-10 administrative data. Med Care. 43(11):1130-9. doi: 10.1097/01.mlr.0000182534.19832.83. PMID: 16224307."
+				 			 		),
+				 			 		p(
+				 			 			"Schuemie, M., & DeFalco, F. (2020). Eunomia: Synthetic patient-level data for the Observational Health Data Sciences and Informatics (OHDSI) community. OHDSI."
+				 			 		),
+				 			 		p(
+				 			 			"Viernes, B., Lynch, K. E., Robison, B., Gatsby, E., DuVall, S. L., & Matheny, M. E. (2020). SNOMED CT Disease Hierarchies and the Charlson Comorbidity Index (CCI): An analysis of OHDSI methods for determining CCI. In Proceedings of the OHDSI Symposium. Retrieved from https://www.ohdsi.org/wp-content/uploads/2020/10/Ben-Viernes-Benjamin-Viernes_CCIBySNOMED_2020Symposium.pdf"
+				 			 		)
+				 			 	)
+				 			 )))
+```
+
+```{r, echo = F}
+# Define Server Logic
+# Create ReactiveValues to Store Error Message
+rv <- reactiveValues(error_message = NULL)
+
+output$cc_index <- DT::renderDataTable({
+	# Only Run When Go Button Is Pressed
+	req(input$go_button)
+	
+	# Isolate Drug Name Input
+	drug_name <- isolate(input$drug_name)
+	
+	 # Check if Input is At Least 4 Characters Long
+	if (nchar(drug_name) < 4) {
+		rv$error_message <- paste0('Sorry, the input "',
+															 drug_name,
+															 '" is too short. Please enter a valid drug name.')
+		return(NULL)
+	}
+	
+	# Define Function To Get Drug Concept IDs
+	get_drug_concept_ids <- function(drug_name) {
+		# Join Drug Exposure With RxNorm List
+		drug_exposure_with_names <- drug_exposure %>%
+			inner_join(rxnorm_list, by = c("drug_concept_id" = "concept_id"))
+		
+		# Filter Drug Concepts
+		drug_concepts <- drug_exposure_with_names %>%
+			filter(stringr::str_detect(tolower(concept_name), tolower(drug_name)))
+		
+		# Select And Distinct Drug Concept Codes
+		drug_concept_codes <- drug_concepts %>%
+			select(drug_concept_id) %>%
+			distinct_all() %>%
+			pull()
+		
+		return(drug_concept_codes)
+	}
+	
+	# Define Comorbidity Conditions And Their Weights
+	conditions_weights <- list(
+		aids_hiv = 6,
+		cerebrovascular_disease = 1,
+		chronic_pulmonary_disease = 1,
+		congestive_heart_failure = 1,
+		dementia = 1,
+		diabetes_with_chronic_complications = 2,
+		diabetes_without_chronic_complications = 1,
+		hemiplegia_or_paraplegia = 2,
+		malignancy_except_skin_neoplasms = 2,
+		metastatic_solid_tumor = 6,
+		mild_liver_disease = 1,
+		moderate_or_severe_liver_disease = 3,
+		myocardial_infarction = 1,
+		peripheral_vascular_disease = 1,
+		peptic_ulcer_disease = 1,
+		renal_disease = 2,
+		rheumatic_disease = 1
+	)
+	
+	# Define Function To Ensure All Columns Exist
+	ensure_columns_exist <- function(df, conditions_weights) {
+		for (col in names(conditions_weights)) {
+			if (!col %in% names(df)) {
+				df <- df %>%
+					mutate(!!col := 0)
+			} else {
+				df <- df %>%
+					mutate_at(vars(col), ~ ifelse(is.na(.), 0, 1))
+			}
+		}
+		return(df)
+	}
+	
+	# Define Function To Calculate Charlson Index
+	calculate_charlson_index <- function(drug_ids) {
+		# Join Drug Exposure With RxNorm List And Filter By Drug IDs
+		drug_exposure_with_names <- drug_exposure %>%
+			inner_join(rxnorm_list, by = c("drug_concept_id" = "concept_id")) %>%
+			filter(drug_concept_id %in% drug_ids)
+		
+		# Find First Exposure Date For Each Person
+		first_exposure <- drug_exposure_with_names %>%
+			group_by(person_id) %>%
+			filter(drug_exposure_start_date == min(drug_exposure_start_date)) %>%
+			slice(1) %>%
+			ungroup()
+		
+		# Create Wider Dataframe With Conditions
+		exposure_and_conditions <- first_exposure %>%
+			inner_join(condition_occurrence, by = "person_id") %>%
+			inner_join(snomed_list, by = c("condition_concept_id" = "concept_id")) %>%
+			pivot_wider(
+				names_from = "comorbid_condition",
+				values_from = "comorbid_condition",
+				values_fill = NA
+			) %>%
+			clean_names() %>%
+			coalesce_dupes(person_id) %>%
+			inner_join(person, by = "person_id") %>%
+			mutate(
+				age_at_drug_exposure = round(as.numeric(
+					difftime(drug_exposure_start_datetime, birth_datetime, units = "secs")
+				) / seconds_in_year),
+				age_weight = case_when(
+					age_at_drug_exposure < 50 ~ 0,
+					age_at_drug_exposure >= 50 &
+						age_at_drug_exposure < 60 ~ 1,
+					age_at_drug_exposure >= 60 &
+						age_at_drug_exposure < 70 ~ 2,
+					age_at_drug_exposure >= 70 &
+						age_at_drug_exposure < 80 ~ 3,
+					age_at_drug_exposure >= 80 ~ 4,
+					TRUE ~ NA_real_
+				)
+			)
+		
+		# Ensure All Columns Exist
+		exposure_and_conditions <-
+			ensure_columns_exist(exposure_and_conditions, conditions_weights)
+		
+		# Calculate Condition Weights Per Quan 2005
+		df_condition_weights <- exposure_and_conditions %>%
+			mutate(condition_weight = 0)
+		for (col in names(conditions_weights)) {
+			df_condition_weights <- df_condition_weights %>%
+				mutate(condition_weight = condition_weight + conditions_weights[[col]] * (!!rlang::sym(col)))
+		}
+		
+		# Calculate Charlson Index
+		df_charlson_index <- df_condition_weights %>%
+			mutate(charlson_index = age_weight + condition_weight)
+		
+		# Create Output Table
+		output_table <- df_charlson_index %>%
+			select(person_id, charlson_index)
+		
+		return(output_table)
+	}
+	
+	# Get Drug IDs
+	drug_ids <- get_drug_concept_ids(drug_name)
+	
+	# Check If Drug IDs Exist
+	if (length(drug_ids) == 0) {
+		rv$error_message <- paste0(
+			'Sorry, it appears that "',
+			drug_name,
+			'" is not contained within the Eunomia CDM tables or is unrecognized.'
+		)
+		return(NULL)
+	} else {
+		# Clear Error Message
+		rv$error_message <- NULL
+		
+		# Calculate Charlson Index
+		charlson_index <- calculate_charlson_index(drug_ids)
+		return(charlson_index)
+	}
+	
+}, options = list(scrollX = TRUE))
+# Output Error
+output$error_message <- renderText({
+	rv$error_message
+})
+
+ # Deploy Shiny App (Uncomment Below Line To Deploy)
+  # rsconnect::deployApp('/Users/roy/Documents/gh/ShinyApp_CharlsonComorbidityIndex_Calculation.Rmd')
+```
